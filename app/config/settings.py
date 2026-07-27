@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # Webhook & Serverless Settings
     WEBHOOK_SECRET: str = Field(default="super_secret_webhook_token_32_chars_long")
-    WEBHOOK_URL: str = Field(default="https://telegame.vercel.app")
+    WEBHOOK_URL: str = Field(default="https://elitetelegame.vercel.app")
     WEBHOOK_PATH: str = Field(default="/webhook")
 
     # Environment
@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     ENABLE_LOGGING: bool = Field(default=True)
     ENABLE_DEBUG_COMMANDS: bool = Field(default=False)
 
+    @field_validator("WEBHOOK_URL", mode="before")
+    @classmethod
+    def parse_webhook_url(cls, val: object) -> str:
+        """Ensure WEBHOOK_URL has https:// or http:// scheme."""
+        if not val:
+            return "https://elitetelegame.vercel.app"
+        s_val = str(val).strip()
+        if not s_val.startswith(("https://", "http://")):
+            return f"https://{s_val}"
+        return s_val
+
     @field_validator("ADMIN_IDS", "SUPER_ADMIN_IDS", mode="before")
     @classmethod
     def parse_int_list(cls, val: object) -> list[int]:
@@ -131,7 +142,12 @@ class Settings(BaseSettings):
     @property
     def full_webhook_url(self) -> str:
         """Returns the complete webhook URL."""
+        import os
+
         base = self.WEBHOOK_URL.rstrip("/")
+        vercel_url = os.getenv("VERCEL_URL")
+        if vercel_url and ("telegame.vercel.app" in base or not base):
+            base = f"https://{vercel_url}"
         path = self.WEBHOOK_PATH if self.WEBHOOK_PATH.startswith("/") else f"/{self.WEBHOOK_PATH}"
         return f"{base}{path}"
 
