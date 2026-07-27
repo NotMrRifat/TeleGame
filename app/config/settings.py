@@ -141,13 +141,22 @@ class Settings(BaseSettings):
 
     @property
     def full_webhook_url(self) -> str:
-        """Returns the complete webhook URL."""
+        """Returns the complete webhook URL dynamically based on environment."""
         import os
 
-        base = self.WEBHOOK_URL.rstrip("/")
-        vercel_url = os.getenv("VERCEL_URL")
-        if vercel_url and ("telegame.vercel.app" in base or not base):
-            base = f"https://{vercel_url}"
+        raw_url = os.getenv("WEBHOOK_URL") or self.WEBHOOK_URL
+        if raw_url and raw_url != "https://elitetelegame.vercel.app":
+            base = raw_url.rstrip("/")
+        elif os.getenv("VERCEL_PROJECT_PRODUCTION_URL"):
+            base = f"https://{os.getenv('VERCEL_PROJECT_PRODUCTION_URL')}".rstrip("/")
+        elif os.getenv("VERCEL_URL"):
+            base = f"https://{os.getenv('VERCEL_URL')}".rstrip("/")
+        else:
+            base = self.WEBHOOK_URL.rstrip("/")
+
+        if not base.startswith(("https://", "http://")):
+            base = f"https://{base}"
+
         path = self.WEBHOOK_PATH if self.WEBHOOK_PATH.startswith("/") else f"/{self.WEBHOOK_PATH}"
         return f"{base}{path}"
 

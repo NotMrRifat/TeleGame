@@ -14,10 +14,16 @@ from app.handlers import (
     user,
 )
 
+_main_router: Router | None = None
+
 
 def setup_routers() -> Router:
-    """Combines all feature routers into main router."""
-    main_router = Router(name="main_router")
+    """Combines all feature routers into main router singleton."""
+    global _main_router
+    if _main_router is not None:
+        return _main_router
+
+    _main_router = Router(name="main_router")
     sub_routers = [
         start.router,
         inline_menu.router,
@@ -30,6 +36,5 @@ def setup_routers() -> Router:
         admin.router,
     ]
     for r in sub_routers:
-        r._parent_router = None
-        main_router.include_router(r)
-    return main_router
+        _main_router.include_router(r)
+    return _main_router

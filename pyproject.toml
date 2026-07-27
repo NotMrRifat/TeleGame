@@ -11,7 +11,7 @@ authors = [
     { name = "TeleGame Team", email = "admin@telegame.platform" }
 ]
 license = { text = "MIT" }
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "aiogram>=3.15.0",
     "sqlalchemy[asyncio]>=2.0.36",
@@ -55,14 +55,14 @@ show_missing = true
 fail_under = 30
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
@@ -70,4 +70,4 @@ ignore = ["E501", "ARG001", "ARG002", "UP036", "UP042", "UP046", "N804", "SIM102
 
 [tool.black]
 line-length = 100
-target-version = ['py313']
+target-version = ['py311']

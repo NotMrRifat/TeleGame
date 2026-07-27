@@ -20,6 +20,7 @@ from app.handlers import setup_routers
 from app.middlewares import DbSessionMiddleware, SecurityMiddleware, UserSyncMiddleware
 from app.utils.commands import setup_bot_commands
 
+# Singleton Bot & Dispatcher instances
 bot = Bot(token=settings.BOT_TOKEN)
 dp = Dispatcher()
 
@@ -28,16 +29,42 @@ dp.update.middleware(DbSessionMiddleware())
 dp.update.middleware(UserSyncMiddleware())
 dp.update.middleware(SecurityMiddleware())
 
-# Register Routers
+# Register Main Router
 dp.include_router(setup_routers())
 
 start_time = time.time()
 _initialized = False
+_webhook_checked = False
 _init_lock = asyncio.Lock()
+
+
+async def ensure_bot_session(bot_inst: Bot) -> None:
+    """Ensures bot's aiohttp ClientSession is active and bound to the current running event loop."""
+    try:
+        current_loop = asyncio.get_running_loop()
+        session = getattr(bot_inst.session, "_session", None)
+        if session is not None:
+            session_loop = getattr(session, "_loop", None)
+            if (
+                session.closed
+                or session_loop is None
+                or session_loop.is_closed()
+                or session_loop is not current_loop
+            ):
+                logger.debug("Recreating bot aiohttp ClientSession for current event loop.")
+                if not session.closed:
+                    await session.close()
+                bot_inst.session._session = None
+    except Exception as e:
+        logger.warning(f"Error checking bot session loop compatibility: {e}")
 
 
 async def setup_telegram_webhook(bot_inst: Bot) -> bool:
     """Checks and registers Telegram webhook automatically with secret token if missing or changed."""
+    global _webhook_checked
+    if _webhook_checked:
+        return True
+
     if not settings.BOT_TOKEN or settings.BOT_TOKEN.startswith("123456789:ABCdef"):
         logger.warning("Skipping webhook setup: BOT_TOKEN is default placeholder.")
         return False
@@ -50,21 +77,33 @@ async def setup_telegram_webhook(bot_inst: Bot) -> bool:
         return False
 
     try:
+        await ensure_bot_session(bot_inst)
         current_info = await bot_inst.get_webhook_info()
         secret = settings.WEBHOOK_SECRET if settings.WEBHOOK_SECRET else None
+
         if current_info.url == target_url:
-            logger.info(f"Webhook registered: {target_url}")
+            logger.info(f"Webhook already registered & active: {target_url}")
+            _webhook_checked = True
             return True
 
         logger.info(f"Registering Telegram Webhook to {target_url}...")
+        allowed_types = dp.resolve_used_update_types() or [
+            "message",
+            "edited_message",
+            "callback_query",
+            "inline_query",
+            "my_chat_member",
+        ]
+
         success = await bot_inst.set_webhook(
             url=target_url,
             secret_token=secret,
-            drop_pending_updates=True,
-            allowed_updates=dp.resolve_used_update_types(),
+            drop_pending_updates=False,
+            allowed_updates=allowed_types,
         )
         if success:
-            logger.info(f"Webhook registered: {target_url}")
+            logger.info(f"Webhook registered successfully: {target_url}")
+            _webhook_checked = True
         else:
             logger.error(f"Failed to register Telegram Webhook to {target_url}")
         return success
@@ -96,13 +135,15 @@ async def ensure_initialized() -> None:
         await run_auto_migrations()
         logger.info("Database connected & verified.")
 
-        # 4. Sync BotFather Slash Commands
-        await setup_bot_commands(bot)
-        logger.info("Commands synced.")
+        # 4. Sync BotFather Slash Commands (non-blocking failure)
+        try:
+            await setup_bot_commands(bot)
+            logger.info("Bot commands synced.")
+        except Exception as e:
+            logger.warning(f"Non-fatal error syncing bot commands: {e}")
 
         # 5. Register Telegram Webhook automatically
         await setup_telegram_webhook(bot)
-        logger.info("Webhook registered.")
 
         logger.info("Dispatcher ready.")
         logger.info("Startup complete — TeleGame Platform operational!")
@@ -180,11 +221,13 @@ async def system_metrics():
 
 
 async def handle_telegram_update(request: Request) -> Response:
-    """Core webhook update processor."""
+    """Core webhook update processor for Telegram Serverless Gateway."""
+    start_ts = time.time()
     await ensure_initialized()
+    await ensure_bot_session(bot)
 
     # Verify secret token header if configured
-    if settings.WEBHOOK_SECRET:
+    if settings.WEBHOOK_SECRET and settings.WEBHOOK_SECRET != "super_secret_webhook_token_32_chars_long":
         secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
         if secret_header != settings.WEBHOOK_SECRET:
             logger.warning("Unauthorized Telegram update: secret token mismatch.")
@@ -192,18 +235,43 @@ async def handle_telegram_update(request: Request) -> Response:
 
     try:
         data = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON payload in Telegram webhook: {e}")
+        return Response(status_code=400, content="Invalid JSON payload")
+
+    # Log incoming telemetry details
+    update_id = data.get("update_id", "unknown")
+    msg_obj = data.get("message") or data.get("edited_message") or {}
+    cb_obj = data.get("callback_query") or {}
+    from_user = msg_obj.get("from") or cb_obj.get("from") or {}
+    user_id = from_user.get("id", "unknown")
+    username = from_user.get("username", "anonymous")
+    command = msg_obj.get("text") or cb_obj.get("data") or "event"
+
+    logger.info(
+        f"Incoming Telegram Update ID: {update_id} | User ID: {user_id} | Username: @{username} | Command: '{command}'"
+    )
+
+    try:
         update = Update.model_validate(data, context={"bot": bot})
         await dp.feed_update(bot=bot, update=update)
+        exec_time_ms = round((time.time() - start_ts) * 1000, 2)
+        logger.info(
+            f"Successfully processed Update ID: {update_id} | User ID: {user_id} | Execution Time: {exec_time_ms}ms | Response Sent: HTTP 200"
+        )
         return Response(status_code=200)
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error processing webhook update: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        exec_time_ms = round((time.time() - start_ts) * 1000, 2)
+        logger.error(
+            f"Exception processing Update ID {update_id} after {exec_time_ms}ms: {e}",
+            exc_info=True,
+        )
+        # Always return HTTP 200 to Telegram so bad updates are acknowledged and not retried endlessly
+        return Response(status_code=200, content="OK")
 
 
 # Register webhook routes for /webhook, /api/webhook, and settings.WEBHOOK_PATH
-webhook_routes = sorted(list(set(["/webhook", "/api/webhook", settings.WEBHOOK_PATH])))
+webhook_routes = sorted({"/webhook", "/api/webhook", settings.WEBHOOK_PATH})
 for path in webhook_routes:
     app.post(path)(handle_telegram_update)
 

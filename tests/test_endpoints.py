@@ -60,6 +60,34 @@ async def test_cron_cleanup_endpoint():
     assert data["status"] == "ok"
 
 
+@pytest.mark.asyncio
+async def test_webhook_telegram_update():
+    """Test POST /webhook accepts Telegram Update and returns HTTP 200."""
+    update_payload = {
+        "update_id": 999999,
+        "message": {
+            "message_id": 1,
+            "date": 1700000000,
+            "chat": {
+                "id": 123456,
+                "type": "private",
+                "first_name": "TestUser",
+            },
+            "from": {
+                "id": 123456,
+                "is_bot": False,
+                "first_name": "TestUser",
+                "username": "testuser",
+                "language_code": "en",
+            },
+            "text": "/start",
+        },
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/webhook", json=update_payload)
+    assert response.status_code == 200
+
+
 def test_vercel_asgi_export():
     """Verify Vercel ASGI app is exported correctly."""
     assert vercel_app is app

@@ -28,9 +28,10 @@ class UserSyncMiddleware(BaseMiddleware):
             lang = raw_lang.split("-")[0].lower() if raw_lang else "bn"
             if lang not in ["en", "bn"]:
                 lang = "bn"
+            first_name = event_user.first_name or "Player"
             db_user = await user_repo.get_or_create(
                 telegram_id=event_user.id,
-                first_name=event_user.first_name,
+                first_name=first_name,
                 username=event_user.username,
                 language_code=lang,
             )
