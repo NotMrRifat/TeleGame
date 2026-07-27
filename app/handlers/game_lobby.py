@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.engine.plugin_manager import plugin_manager
 from app.core.engine.session_manager import ActiveSessionConflictError, SessionManager
-from app.utils.keyboards import get_games_selection_keyboard
+from app.models.domain import UserModel
+from app.utils.keyboards import (
+    get_connect_four_keyboard,
+    get_games_selection_keyboard,
+    get_rps_keyboard,
+    get_tic_tac_toe_keyboard,
+)
 
 router = Router(name="game_lobby_router")
 
@@ -97,7 +103,7 @@ async def cmd_join(message: Message, db_session: AsyncSession) -> None:
         return
 
     session_rec, game_inst = await session_mgr.load_game_instance(active_session.id)
-    joined = game_inst.join(message.from_user.id)
+    joined = game_inst.join(message.from_user)
 
     if not joined:
         await message.reply(
@@ -114,6 +120,64 @@ async def cmd_join(message: Message, db_session: AsyncSession) -> None:
         f"Host type `/startgame` when ready!",
         parse_mode="Markdown",
     )
+
+
+@router.message(Command("startgame"))
+async def cmd_startgame(message: Message, db_session: AsyncSession, db_user: UserModel) -> None:
+    """Handles /startgame command for host to start match."""
+    session_mgr = SessionManager(db_session)
+    active_session = await session_mgr.get_active_session(message.chat.id)
+
+    if not active_session:
+        await message.reply(
+            "ℹ️ No active game lobby to start. Type `/newgame` to create one!",
+            parse_mode="Markdown",
+        )
+        return
+
+    if active_session.status != "LOBBY":
+        await message.reply("⚠️ Game is already running!", parse_mode="Markdown")
+        return
+
+    if active_session.current_turn_user_id != message.from_user.id:
+        await message.reply("⚠️ Only the lobby host can start the game!", parse_mode="Markdown")
+        return
+
+    session_rec, game_inst = await session_mgr.load_game_instance(active_session.id)
+    if len(game_inst.players) < game_inst.min_players:
+        await message.reply(
+            f"⚠️ Need at least {game_inst.min_players} players to start! Current players: {len(game_inst.players)}.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Start match
+    game_inst.start()
+    session_rec.status = "PLAYING"
+    await session_mgr.save_game_instance(session_rec, game_inst)
+
+    game_slug = session_rec.game_slug
+    if game_slug == "tic_tac_toe":
+        board_text = game_inst.render(db_user.language_code)
+        board_kb = get_tic_tac_toe_keyboard(game_inst.board)
+        await message.reply(
+            f"🎮 *Game Started!*\n\n{board_text}", reply_markup=board_kb, parse_mode="Markdown"
+        )
+    elif game_slug == "rock_paper_scissors":
+        board_text = game_inst.render(db_user.language_code)
+        board_kb = get_rps_keyboard()
+        await message.reply(
+            f"🎮 *Game Started!*\n\n{board_text}", reply_markup=board_kb, parse_mode="Markdown"
+        )
+    elif game_slug == "connect_four":
+        board_text = game_inst.render(db_user.language_code)
+        board_kb = get_connect_four_keyboard(game_inst.board)
+        await message.reply(
+            f"🎮 *Game Started!*\n\n{board_text}", reply_markup=board_kb, parse_mode="Markdown"
+        )
+    else:
+        board_text = game_inst.render(db_user.language_code)
+        await message.reply(f"🎮 *Game Started!*\n\n{board_text}", parse_mode="Markdown")
 
 
 @router.message(Command("cancel", "endgame", "forfeit"))

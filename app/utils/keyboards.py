@@ -2,6 +2,7 @@
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.config.settings import settings
 from app.i18n.engine import i18n
 
 
@@ -51,6 +52,15 @@ def get_main_menu_keyboard(lang: str = "bn") -> InlineKeyboardMarkup:
     return keyboard
 
 
+def get_back_to_menu_keyboard(lang: str = "bn") -> InlineKeyboardMarkup:
+    """Simple back to main menu keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Back to Main Menu", callback_data="menu_main")]
+        ]
+    )
+
+
 def get_games_selection_keyboard() -> InlineKeyboardMarkup:
     """Constructs dynamic game selection inline keyboard."""
     games = [
@@ -77,6 +87,18 @@ def get_games_selection_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_game_details_keyboard(game_slug: str) -> InlineKeyboardMarkup:
+    """Inline keyboard for individual game detail page."""
+    bot_username = settings.BOT_USERNAME or "TeleGameMasterBot"
+    start_group_url = f"https://t.me/{bot_username}?startgroup={game_slug}"
+
+    buttons = [
+        [InlineKeyboardButton(text="➕ Add to Group Chat to Play", url=start_group_url)],
+        [InlineKeyboardButton(text="🔙 Back to Games", callback_data="menu_games")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_tic_tac_toe_keyboard(board: list[str]) -> InlineKeyboardMarkup:
     """Renders interactive 3x3 Tic-Tac-Toe grid keyboard."""
     buttons = []
@@ -87,4 +109,30 @@ def get_tic_tac_toe_keyboard(board: list[str]) -> InlineKeyboardMarkup:
             val = board[idx] if board[idx] != " " else "⬜"
             row.append(InlineKeyboardButton(text=val, callback_data=f"ttt_move_{idx}"))
         buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_rps_keyboard() -> InlineKeyboardMarkup:
+    """Renders interactive Rock Paper Scissors choice keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🪨 Rock", callback_data="rps_move_rock"),
+                InlineKeyboardButton(text="📄 Paper", callback_data="rps_move_paper"),
+                InlineKeyboardButton(text="✂️ Scissors", callback_data="rps_move_scissors"),
+            ]
+        ]
+    )
+
+
+def get_connect_four_keyboard(board: list[list[str]] | None = None) -> InlineKeyboardMarkup:
+    """Renders interactive 7-column Connect Four drop keyboard."""
+    buttons = []
+
+    # Column selectors 1 to 7
+    col_row = []
+    for col in range(7):
+        col_row.append(InlineKeyboardButton(text=f"{col + 1}️⃣", callback_data=f"c4_drop_{col}"))
+    buttons.append(col_row)
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
