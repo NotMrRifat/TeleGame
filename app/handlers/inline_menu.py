@@ -9,6 +9,7 @@ from app.i18n.engine import i18n
 from app.models.domain import UserModel
 from app.repositories.domain_repos import RatingRepository
 from app.services.economy_service import EconomyService
+from app.utils.game_info import GAME_DETAILS
 from app.utils.keyboards import (
     get_back_to_menu_keyboard,
     get_game_details_keyboard,
@@ -53,22 +54,27 @@ async def cb_select_game(query: CallbackQuery) -> None:
         await query.answer("Game plugin not found.", show_alert=True)
         return
 
+    info = GAME_DETAILS.get(slug, {})
     game_cls = games[slug]
-    title = getattr(game_cls, "title", slug.replace("_", " ").title())
-    description = getattr(game_cls, "description", "Exciting multiplayer game!")
-    min_p = getattr(game_cls, "min_players", 2)
-    max_p = getattr(game_cls, "max_players", 2)
+    title = info.get("title") or getattr(game_cls, "title", slug.replace("_", " ").title())
+    description = info.get("description") or getattr(
+        game_cls, "description", "Exciting multiplayer game!"
+    )
+    min_p = info.get("min_players") or getattr(game_cls, "min_players", 2)
+    max_p = info.get("max_players") or getattr(game_cls, "max_players", 2)
+    rules = info.get("rules", "Play turns according to game rules.")
 
     detail_text = (
         f"🎮 *{title}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📝 *Description:* {description}\n"
         f"👥 *Players:* {min_p} - {max_p} Players\n"
-        f"🏷 *Category:* `{slug}`\n\n"
-        f"📖 *How to launch in a Group:*\n"
+        f"🏷 *Category:* `{info.get('category', slug)}`\n\n"
+        f"📜 *How to Play & Rules:*\n{rules}\n\n"
+        f"📖 *How to Launch in a Group Chat:*\n"
         f"1. Add @TeleGameMasterBot to your group.\n"
         f"2. Type `/newgame {slug}` in the group!\n"
-        f"3. Type `/join` and `/startgame` to begin."
+        f"3. Type `/join` to enter the lobby and start playing!"
     )
     kb = get_game_details_keyboard(slug)
     if query.message:

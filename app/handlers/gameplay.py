@@ -1,4 +1,6 @@
-"""Active gameplay move handlers for interactive games."""
+"""Active gameplay move handlers for interactive games with victory announcements."""
+
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
@@ -6,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.engine.session_manager import SessionManager
 from app.models.domain import UserModel
+from app.repositories.domain_repos import UserRepository
 from app.services.rating_service import RatingService
 from app.utils.keyboards import (
     get_connect_four_keyboard,
@@ -14,6 +17,36 @@ from app.utils.keyboards import (
 )
 
 router = Router(name="gameplay_router")
+
+
+async def format_game_over_message(
+    result: Any, game_inst: Any, db_session: AsyncSession, current_user: Any, board_text: str
+) -> str:
+    """Renders congratulatory victory message with winner name or draw notification."""
+    if result.winner_user_id:
+        winner_name = "Player"
+        if result.winner_user_id == current_user.id:
+            winner_name = current_user.first_name or "Player"
+        else:
+            user_repo = UserRepository(db_session)
+            w_user = await user_repo.get_by_telegram_id(result.winner_user_id)
+            if w_user:
+                winner_name = w_user.first_name or f"User {result.winner_user_id}"
+
+        return (
+            f"🎉 *CONGRATULATIONS {winner_name.upper()}!* 🏆\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👑 You won the match! High score & Elo rating updated!\n\n"
+            f"{board_text}"
+        )
+    elif result.is_draw:
+        return (
+            f"🤝 *MATCH ENDED IN A DRAW!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Both players played exceptionally well!\n\n"
+            f"{board_text}"
+        )
+    return f"🏁 *GAME OVER!*\n\n{board_text}"
 
 
 @router.callback_query(F.data.startswith("ttt_move_"))
@@ -51,8 +84,11 @@ async def cb_ttt_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
                 result.winner_user_id, loser_id, session_rec.game_slug
             )
 
+        final_msg = await format_game_over_message(
+            result, game_inst, db_session, query.from_user, board_text
+        )
         if query.message:
-            await query.message.edit_text(board_text, parse_mode="Markdown")
+            await query.message.edit_text(final_msg, parse_mode="Markdown")
     else:
         if query.message:
             await query.message.edit_text(board_text, reply_markup=board_kb, parse_mode="Markdown")
@@ -94,8 +130,11 @@ async def cb_rps_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
                 result.winner_user_id, loser_id, session_rec.game_slug
             )
 
+        final_msg = await format_game_over_message(
+            result, game_inst, db_session, query.from_user, board_text
+        )
         if query.message:
-            await query.message.edit_text(board_text, parse_mode="Markdown")
+            await query.message.edit_text(final_msg, parse_mode="Markdown")
     else:
         board_kb = get_rps_keyboard()
         if query.message:
@@ -138,8 +177,11 @@ async def cb_c4_drop(query: CallbackQuery, db_user: UserModel, db_session: Async
                 result.winner_user_id, loser_id, session_rec.game_slug
             )
 
+        final_msg = await format_game_over_message(
+            result, game_inst, db_session, query.from_user, board_text
+        )
         if query.message:
-            await query.message.edit_text(board_text, parse_mode="Markdown")
+            await query.message.edit_text(final_msg, parse_mode="Markdown")
     else:
         board_kb = get_connect_four_keyboard(game_inst.board)
         if query.message:
