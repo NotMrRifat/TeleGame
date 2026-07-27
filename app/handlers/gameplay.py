@@ -1,4 +1,4 @@
-"""Active gameplay move handlers for interactive games with victory announcements."""
+"""Active gameplay move handlers for interactive games with AI Opponent support and victory announcements."""
 
 from typing import Any
 
@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.engine.ai_opponent import BOT_AI_ID, compute_ai_move
 from app.core.engine.session_manager import SessionManager
 from app.models.domain import UserModel
 from app.repositories.domain_repos import UserRepository
@@ -24,6 +25,14 @@ async def format_game_over_message(
 ) -> str:
     """Renders congratulatory victory message with winner name or draw notification."""
     if result.winner_user_id:
+        if result.winner_user_id == BOT_AI_ID:
+            return (
+                f"🤖 *COMPUTER WON THE MATCH!* 🤖\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Better luck next time! Keep practicing to defeat the Computer!\n\n"
+                f"{board_text}"
+            )
+
         winner_name = "Player"
         if result.winner_user_id == current_user.id:
             winner_name = current_user.first_name or "Player"
@@ -69,6 +78,13 @@ async def cb_ttt_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
 
     await session_mgr.save_game_instance(session_rec, game_inst)
 
+    # If vs Computer AI and not over, AI takes counter-move
+    if BOT_AI_ID in game_inst.players and not result.is_game_over:
+        ai_move = compute_ai_move("tic_tac_toe", game_inst)
+        if ai_move:
+            result = game_inst.handle_move(BOT_AI_ID, ai_move)
+            await session_mgr.save_game_instance(session_rec, game_inst)
+
     board_text = game_inst.render(db_user.language_code)
     board_kb = get_tic_tac_toe_keyboard(game_inst.board)
 
@@ -77,12 +93,18 @@ async def cb_ttt_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
         session_rec.winner_user_id = result.winner_user_id
         await db_session.flush()
 
-        if result.winner_user_id and game_inst.players and len(game_inst.players) >= 2:
+        if (
+            result.winner_user_id
+            and result.winner_user_id != BOT_AI_ID
+            and game_inst.players
+            and len(game_inst.players) >= 2
+        ):
             loser_id = [p for p in game_inst.players if p != result.winner_user_id][0]
-            rating_service = RatingService(db_session)
-            await rating_service.update_1v1_ratings(
-                result.winner_user_id, loser_id, session_rec.game_slug
-            )
+            if loser_id != BOT_AI_ID:
+                rating_service = RatingService(db_session)
+                await rating_service.update_1v1_ratings(
+                    result.winner_user_id, loser_id, session_rec.game_slug
+                )
 
         final_msg = await format_game_over_message(
             result, game_inst, db_session, query.from_user, board_text
@@ -116,6 +138,13 @@ async def cb_rps_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
 
     await session_mgr.save_game_instance(session_rec, game_inst)
 
+    # If vs Computer AI and not over, AI submits choice
+    if BOT_AI_ID in game_inst.players and not result.is_game_over:
+        ai_move = compute_ai_move("rock_paper_scissors", game_inst)
+        if ai_move:
+            result = game_inst.handle_move(BOT_AI_ID, ai_move)
+            await session_mgr.save_game_instance(session_rec, game_inst)
+
     board_text = game_inst.render(db_user.language_code)
 
     if result.is_game_over:
@@ -123,12 +152,18 @@ async def cb_rps_move(query: CallbackQuery, db_user: UserModel, db_session: Asyn
         session_rec.winner_user_id = result.winner_user_id
         await db_session.flush()
 
-        if result.winner_user_id and game_inst.players and len(game_inst.players) >= 2:
+        if (
+            result.winner_user_id
+            and result.winner_user_id != BOT_AI_ID
+            and game_inst.players
+            and len(game_inst.players) >= 2
+        ):
             loser_id = [p for p in game_inst.players if p != result.winner_user_id][0]
-            rating_service = RatingService(db_session)
-            await rating_service.update_1v1_ratings(
-                result.winner_user_id, loser_id, session_rec.game_slug
-            )
+            if loser_id != BOT_AI_ID:
+                rating_service = RatingService(db_session)
+                await rating_service.update_1v1_ratings(
+                    result.winner_user_id, loser_id, session_rec.game_slug
+                )
 
         final_msg = await format_game_over_message(
             result, game_inst, db_session, query.from_user, board_text
@@ -163,6 +198,13 @@ async def cb_c4_drop(query: CallbackQuery, db_user: UserModel, db_session: Async
 
     await session_mgr.save_game_instance(session_rec, game_inst)
 
+    # If vs Computer AI and not over, AI drops disc
+    if BOT_AI_ID in game_inst.players and not result.is_game_over:
+        ai_move = compute_ai_move("connect_four", game_inst)
+        if ai_move:
+            result = game_inst.handle_move(BOT_AI_ID, ai_move)
+            await session_mgr.save_game_instance(session_rec, game_inst)
+
     board_text = game_inst.render(db_user.language_code)
 
     if result.is_game_over:
@@ -170,12 +212,18 @@ async def cb_c4_drop(query: CallbackQuery, db_user: UserModel, db_session: Async
         session_rec.winner_user_id = result.winner_user_id
         await db_session.flush()
 
-        if result.winner_user_id and game_inst.players and len(game_inst.players) >= 2:
+        if (
+            result.winner_user_id
+            and result.winner_user_id != BOT_AI_ID
+            and game_inst.players
+            and len(game_inst.players) >= 2
+        ):
             loser_id = [p for p in game_inst.players if p != result.winner_user_id][0]
-            rating_service = RatingService(db_session)
-            await rating_service.update_1v1_ratings(
-                result.winner_user_id, loser_id, session_rec.game_slug
-            )
+            if loser_id != BOT_AI_ID:
+                rating_service = RatingService(db_session)
+                await rating_service.update_1v1_ratings(
+                    result.winner_user_id, loser_id, session_rec.game_slug
+                )
 
         final_msg = await format_game_over_message(
             result, game_inst, db_session, query.from_user, board_text

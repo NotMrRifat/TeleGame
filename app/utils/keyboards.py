@@ -88,12 +88,13 @@ def get_games_selection_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_game_details_keyboard(game_slug: str) -> InlineKeyboardMarkup:
-    """Inline keyboard for individual game detail page."""
+    """Inline keyboard for individual game detail page with Solo vs Computer mode."""
     bot_username = settings.BOT_USERNAME or "TeleGameMasterBot"
     start_group_url = f"https://t.me/{bot_username}?startgroup={game_slug}"
 
     buttons = [
-        [InlineKeyboardButton(text="➕ Add to Group Chat to Play", url=start_group_url)],
+        [InlineKeyboardButton(text="🤖 Play vs Computer (Solo)", callback_data=f"play_ai_{game_slug}")],
+        [InlineKeyboardButton(text="👥 Play with Friends in Group", url=start_group_url)],
         [InlineKeyboardButton(text="🔙 Back to Games", callback_data="menu_games")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -5,6 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.engine.ai_opponent import get_ai_game_player
 from app.core.engine.base_game import GamePlayer
 from app.core.engine.plugin_manager import plugin_manager
 from app.core.engine.session_manager import ActiveSessionConflictError, SessionManager
@@ -18,6 +19,63 @@ from app.utils.keyboards import (
 )
 
 router = Router(name="game_lobby_router")
+
+
+@router.message(Command("playbot", "vsbot", "ai"))
+async def cmd_vsbot(message: Message, db_session: AsyncSession, db_user: UserModel) -> None:
+    """Handles /playbot or /vsbot command to launch instant single-player vs Computer game."""
+    args = message.text.split()
+    game_slug = args[1] if len(args) > 1 else "tic_tac_toe"
+
+    if game_slug not in plugin_manager.list_available_games():
+        await message.reply(
+            f"❌ Game plugin `{game_slug}` not found. Type `/games` to view available games.",
+            parse_mode="Markdown",
+        )
+        return
+
+    session_mgr = SessionManager(db_session)
+    existing = await session_mgr.get_active_session(message.chat.id)
+    if existing:
+        existing.status = "CANCELLED"
+        await db_session.flush()
+
+    session_rec = await session_mgr.create_game_session(
+        telegram_chat_id=message.chat.id,
+        title=message.chat.title or f"Solo vs Computer ({message.from_user.first_name})",
+        game_slug=game_slug,
+        host_telegram_id=message.from_user.id,
+        host_username=message.from_user.username,
+    )
+
+    _, game_inst = await session_mgr.load_game_instance(session_rec.id)
+    ai_player = get_ai_game_player()
+    game_inst.join(ai_player)
+    game_inst.start()
+
+    session_rec.status = "PLAYING"
+    await session_mgr.save_game_instance(session_rec, game_inst)
+
+    info = GAME_DETAILS.get(game_slug, {})
+    board_text = game_inst.render(db_user.language_code)
+    header = (
+        f"🤖 *Match Started: {info.get('title', game_slug)} vs Computer!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 *Player:* {message.from_user.first_name}\n"
+        f"🤖 *Opponent:* TeleGame Computer AI\n\n"
+    )
+
+    if game_slug == "tic_tac_toe":
+        kb = get_tic_tac_toe_keyboard(game_inst.board)
+        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    elif game_slug == "rock_paper_scissors":
+        kb = get_rps_keyboard()
+        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    elif game_slug == "connect_four":
+        kb = get_connect_four_keyboard(game_inst.board)
+        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    else:
+        await message.reply(f"{header}{board_text}", parse_mode="Markdown")
 
 
 @router.message(Command("games"))

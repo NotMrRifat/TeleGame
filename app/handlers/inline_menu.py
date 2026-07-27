@@ -4,7 +4,9 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.engine.ai_opponent import get_ai_game_player
 from app.core.engine.plugin_manager import plugin_manager
+from app.core.engine.session_manager import SessionManager
 from app.i18n.engine import i18n
 from app.models.domain import UserModel
 from app.repositories.domain_repos import RatingRepository
@@ -12,9 +14,12 @@ from app.services.economy_service import EconomyService
 from app.utils.game_info import GAME_DETAILS
 from app.utils.keyboards import (
     get_back_to_menu_keyboard,
+    get_connect_four_keyboard,
     get_game_details_keyboard,
     get_games_selection_keyboard,
     get_main_menu_keyboard,
+    get_rps_keyboard,
+    get_tic_tac_toe_keyboard,
 )
 
 router = Router(name="inline_menu_router")
@@ -80,6 +85,70 @@ async def cb_select_game(query: CallbackQuery) -> None:
     if query.message:
         await query.message.edit_text(detail_text, reply_markup=kb, parse_mode="Markdown")
     await query.answer()
+
+
+@router.callback_query(F.data.startswith("play_ai_"))
+async def cb_play_ai(query: CallbackQuery, db_user: UserModel, db_session: AsyncSession) -> None:
+    """Launches an instant single-player game session against Computer AI."""
+    slug = query.data.replace("play_ai_", "")
+    games = plugin_manager.list_available_games()
+
+    if slug not in games:
+        await query.answer("Game plugin not found.", show_alert=True)
+        return
+
+    session_mgr = SessionManager(db_session)
+    chat_id = query.message.chat.id if query.message else query.from_user.id
+    chat_title = (
+        query.message.chat.title
+        if (query.message and query.message.chat.title)
+        else f"Solo Play ({db_user.first_name})"
+    )
+
+    # Cancel existing session if any
+    existing = await session_mgr.get_active_session(chat_id)
+    if existing:
+        existing.status = "CANCELLED"
+        await db_session.flush()
+
+    # Create session
+    session_rec = await session_mgr.create_game_session(
+        telegram_chat_id=chat_id,
+        title=chat_title,
+        game_slug=slug,
+        host_telegram_id=query.from_user.id,
+        host_username=query.from_user.username,
+    )
+
+    _, game_inst = await session_mgr.load_game_instance(session_rec.id)
+    ai_player = get_ai_game_player()
+    game_inst.join(ai_player)
+    game_inst.start()
+
+    session_rec.status = "PLAYING"
+    await session_mgr.save_game_instance(session_rec, game_inst)
+
+    info = GAME_DETAILS.get(slug, {})
+    board_text = game_inst.render(db_user.language_code)
+    header = (
+        f"🤖 *Match Started: {info.get('title', slug)} vs Computer!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 *Player:* {query.from_user.first_name}\n"
+        f"🤖 *Opponent:* TeleGame Computer AI\n\n"
+    )
+
+    if slug == "tic_tac_toe":
+        kb = get_tic_tac_toe_keyboard(game_inst.board)
+    elif slug == "rock_paper_scissors":
+        kb = get_rps_keyboard()
+    elif slug == "connect_four":
+        kb = get_connect_four_keyboard(game_inst.board)
+    else:
+        kb = get_back_to_menu_keyboard(db_user.language_code)
+
+    if query.message:
+        await query.message.edit_text(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    await query.answer("Started match against Computer!")
 
 
 @router.callback_query(F.data == "menu_profile")
