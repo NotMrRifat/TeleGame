@@ -31,10 +31,15 @@ class GamePlugin(BaseGame):
         self.winner_id = None
         return self.serialize()
 
-    def join(self, player: GamePlayer) -> bool:
-        if len(self.players) >= 2 or player.telegram_id in self.players:
+    def join(self, player: Any) -> bool:
+        p_id = (
+            player.telegram_id
+            if hasattr(player, "telegram_id")
+            else (player.id if hasattr(player, "id") else int(player))
+        )
+        if len(self.players) >= 2 or p_id in self.players:
             return False
-        self.players.append(player.telegram_id)
+        self.players.append(p_id)
         return True
 
     def leave(self, telegram_id: int) -> bool:

@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.logging import logger
-from app.core.engine.base_game import BaseGame
+from app.core.engine.base_game import BaseGame, GamePlayer
 from app.core.engine.plugin_manager import plugin_manager
 from app.models.domain import GroupModel, PlayerSessionModel, SessionModel
 from app.repositories.domain_repos import GroupRepository, SessionRepository
@@ -55,9 +55,13 @@ class SessionManager:
         if active:
             raise ActiveSessionConflictError("An active game session already exists in this group.")
 
-        # Instantiate Game plugin to get initial state
+        # Instantiate Game plugin & join host as first player
         game_cls = plugin_manager.get_game_class(game_slug)
         game_inst = game_cls()
+        host_game_player = GamePlayer(
+            telegram_id=host_telegram_id, username=host_username, role="host"
+        )
+        game_inst.join(host_game_player)
 
         session = await self.session_repo.create(
             group_id=group.id,

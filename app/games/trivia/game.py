@@ -51,10 +51,15 @@ class GamePlugin(BaseGame):
         self.winner_id = None
         return self.serialize()
 
-    def join(self, player: GamePlayer) -> bool:
-        if player.telegram_id not in self.players:
-            self.players.append(player.telegram_id)
-            self.scores[player.telegram_id] = 0
+    def join(self, player: Any) -> bool:
+        p_id = (
+            player.telegram_id
+            if hasattr(player, "telegram_id")
+            else (player.id if hasattr(player, "id") else int(player))
+        )
+        if p_id not in self.players:
+            self.players.append(p_id)
+            self.scores[p_id] = 0
             return True
         return False
 

@@ -5,6 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.engine.base_game import GamePlayer
 from app.core.engine.plugin_manager import plugin_manager
 from app.core.engine.session_manager import ActiveSessionConflictError, SessionManager
 from app.models.domain import UserModel
@@ -103,7 +104,11 @@ async def cmd_join(message: Message, db_session: AsyncSession) -> None:
         return
 
     session_rec, game_inst = await session_mgr.load_game_instance(active_session.id)
-    joined = game_inst.join(message.from_user)
+    player_obj = GamePlayer(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+    )
+    joined = game_inst.join(player_obj)
 
     if not joined:
         await message.reply(
