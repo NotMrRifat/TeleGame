@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.core.engine.ai_opponent import BOT_AI_ID
 from app.core.engine.base_game import BaseGame, GameMoveResult, GamePlayer
 
 
@@ -172,10 +173,21 @@ class GamePlugin(BaseGame):
 
     def render(self, language_code: str = "en") -> str:
         b = [x if x != " " else "⬜" for x in self.board]
-        grid = f"{b[0]} | {b[1]} | {b[2]}\n{b[3]} | {b[4]} | {b[5]}\n{b[6]} | {b[7]} | {b[8]}"
+        grid = (
+            f"{b[0]} | {b[1]} | {b[2]}\n"
+            f"{b[3]} | {b[4]} | {b[5]}\n"
+            f"{b[6]} | {b[7]} | {b[8]}"
+        )
         if self.is_over:
             if self.winner_id:
-                return f"🎮 *Tic-Tac-Toe*\n\n{grid}\n\n🏆 Winner: Player {self.symbols.get(self.winner_id, 'Winner')}"
+                sym = self.symbols.get(self.winner_id, "?")
+                winner_label = "🤖 Computer" if self.winner_id == BOT_AI_ID else f"Player {sym}"
+                return f"🎮 *Tic-Tac-Toe*\n\n{grid}\n\n🏆 Winner: {winner_label}!"
             return f"🎮 *Tic-Tac-Toe*\n\n{grid}\n\n🤝 Match ended in a Draw!"
-        turn_symbol = self.symbols.get(self.players[self.turn_index], "Current")
-        return f"🎮 *Tic-Tac-Toe*\n\n{grid}\n\nTurn: {turn_symbol}"
+        current_id = self.players[self.turn_index] if self.players else None
+        if current_id == BOT_AI_ID:
+            turn_text = "🤖 Computer is thinking..."
+        else:
+            sym = self.symbols.get(current_id, "?")
+            turn_text = f"Your turn: {sym}"
+        return f"🎮 *Tic-Tac-Toe*\n\n{grid}\n\n▶️ {turn_text}"

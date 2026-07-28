@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.core.engine.ai_opponent import BOT_AI_ID
 from app.core.engine.base_game import BaseGame, GameMoveResult, GamePlayer
 
 
@@ -171,6 +172,14 @@ class GamePlugin(BaseGame):
         grid = "\n".join(lines) + "\n1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣"
         if self.is_over:
             if self.winner_id:
-                return f"🔴🟡 *Connect Four*\n\n{grid}\n\n🏆 Winner: Player {self.symbols.get(self.winner_id, 'Winner')}"
-            return f"🔴🟡 *Connect Four*\n\n{grid}\n\n🤝 Game ended!"
-        return f"🔴🟡 *Connect Four*\n\n{grid}\n\nTurn: {self.symbols.get(self.players[self.turn_index], 'Current')}"
+                sym = self.symbols.get(self.winner_id, "")
+                winner_label = "🤖 Computer" if self.winner_id == BOT_AI_ID else f"Player {sym}"
+                return f"🔴🟡 *Connect Four*\n\n{grid}\n\n🏆 Winner: {winner_label}!"
+            return f"🔴🟡 *Connect Four*\n\n{grid}\n\n🤝 It's a Draw!"
+        current_id = self.players[self.turn_index] if self.players else None
+        if current_id == BOT_AI_ID:
+            turn_text = "🤖 Computer's turn"
+        else:
+            sym = self.symbols.get(current_id, "Current") if current_id else "Current"
+            turn_text = f"Your turn: {sym}"
+        return f"🔴🟡 *Connect Four*\n\n{grid}\n\n▶️ {turn_text}"

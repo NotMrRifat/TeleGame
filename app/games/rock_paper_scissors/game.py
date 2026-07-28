@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.core.engine.ai_opponent import BOT_AI_ID
 from app.core.engine.base_game import BaseGame, GameMoveResult, GamePlayer
 
 
@@ -133,9 +134,30 @@ class GamePlugin(BaseGame):
         return GameMoveResult(success=True, message="RPS match timed out.", is_game_over=True)
 
     def render(self, language_code: str = "en") -> str:
+        rps_emoji = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
         if self.is_over:
+            # Build choices summary
+            lines = []
+            for pid, ch in self.choices.items():
+                label = "🤖 Computer" if pid == BOT_AI_ID else f"Player {pid}"
+                lines.append(f"{label}: {rps_emoji.get(ch, ch)} *{ch.capitalize()}*")
+            choices_text = "\n".join(lines) if lines else ""
             if self.winner_id:
-                return f"✊✌✋ *Rock Paper Scissors*\n\n🏆 Winner: Player {self.winner_id}!"
-            return "✊✌✋ *Rock Paper Scissors*\n\n🤝 Match ended in a Draw!"
+                winner_label = "🤖 Computer" if self.winner_id == BOT_AI_ID else f"Player {self.winner_id}"
+                return (
+                    f"✊✌✋ *Rock Paper Scissors — Result!*\n\n"
+                    f"{choices_text}\n\n"
+                    f"🏆 Winner: {winner_label}!"
+                )
+            return (
+                f"✊✌✋ *Rock Paper Scissors — Result!*\n\n"
+                f"{choices_text}\n\n"
+                f"🤝 Match ended in a Draw!"
+            )
         submitted = len(self.choices)
-        return f"✊✌✋ *Rock Paper Scissors*\n\nWaiting for choices... ({submitted}/2 submitted)"
+        remaining = len(self.players) - submitted
+        return (
+            f"✊✌✋ *Rock Paper Scissors*\n\n"
+            f"{'✅' * submitted}{'⏳' * remaining} ({submitted}/{len(self.players)} choices submitted)\n"
+            f"Tap a button below to make your choice!"
+        )

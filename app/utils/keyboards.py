@@ -61,6 +61,48 @@ def get_back_to_menu_keyboard(lang: str = "bn") -> InlineKeyboardMarkup:
     )
 
 
+def get_post_game_keyboard(game_slug: str) -> InlineKeyboardMarkup:
+    """Post-game keyboard shown after a match ends: rematch or browse games."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Play Again (vs Computer)",
+                    callback_data=f"play_ai_{game_slug}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎮 Browse All Games",
+                    callback_data="menu_games",
+                ),
+                InlineKeyboardButton(
+                    text="🏠 Main Menu",
+                    callback_data="menu_main",
+                ),
+            ],
+        ]
+    )
+
+
+def get_group_post_game_keyboard() -> InlineKeyboardMarkup:
+    """Post-game keyboard for group matches: start new game or view games list."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎮 Browse Games",
+                    callback_data="menu_games",
+                ),
+                InlineKeyboardButton(
+                    text="🏠 Main Menu",
+                    callback_data="menu_main",
+                ),
+            ],
+        ]
+    )
+
+
 def get_games_selection_keyboard() -> InlineKeyboardMarkup:
     """Constructs dynamic game selection inline keyboard."""
     games = [
@@ -127,13 +169,11 @@ def get_rps_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_connect_four_keyboard(board: list[list[str]] | None = None) -> InlineKeyboardMarkup:
-    """Renders interactive 7-column Connect Four drop keyboard."""
-    buttons = []
-
-    # Column selectors 1 to 7
+    """Renders interactive 7-column Connect Four drop keyboard with available columns highlighted."""
     col_row = []
     for col in range(7):
-        col_row.append(InlineKeyboardButton(text=f"{col + 1}️⃣", callback_data=f"c4_drop_{col}"))
-    buttons.append(col_row)
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        # Dim full columns with a different indicator
+        is_full = board is not None and board[0][col] != " "
+        label = f"✖️" if is_full else f"{col + 1}️⃣"
+        col_row.append(InlineKeyboardButton(text=label, callback_data=f"c4_drop_{col}"))
+    return InlineKeyboardMarkup(inline_keyboard=[col_row])
