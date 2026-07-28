@@ -1,4 +1,6 @@
-"""Game Lobby & Session control handlers with detailed step-by-step instructions."""
+"""Game Lobby & Session control handlers with detailed step-by-step instructions and countdown."""
+
+import asyncio
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -19,6 +21,73 @@ from app.utils.keyboards import (
 )
 
 router = Router(name="game_lobby_router")
+
+
+async def send_instructions_then_countdown(
+    message: Message,
+    game_slug: str,
+    info: dict,
+) -> None:
+    """Send how-to-play instructions, then a 5-second countdown before the game."""
+    how_to_play = info.get("how_to_play", "")
+    title = info.get("title", game_slug.replace("_", " ").title())
+
+    if how_to_play:
+        instr_msg = await message.answer(
+            how_to_play,
+            parse_mode="Markdown",
+        )
+    else:
+        instr_msg = await message.answer(
+            f"📖 *{title} — Rules & Controls*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{info.get('rules', 'Follow the game rules!')}",
+            parse_mode="Markdown",
+        )
+
+    # 5-second countdown
+    await asyncio.sleep(1)
+    countdown_msg = await message.answer("⏳ *Game starting in...*\n\n🕔 *5*", parse_mode="Markdown")
+    for i in range(4, 0, -1):
+        await asyncio.sleep(1)
+        emoji = ["", "🕛", "🕔", "🕗", "🕙"][i] if i <= 4 else "🕐"
+        try:
+            await countdown_msg.edit_text(
+                f"⏳ *Game starting in...*\n\n{emoji} *{i}*",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+    await asyncio.sleep(1)
+    try:
+        await countdown_msg.edit_text("🚀 *GO! The match has started!* 🎮", parse_mode="Markdown")
+    except Exception:
+        pass
+
+
+async def send_game_board(
+    message: Message,
+    game_slug: str,
+    header: str,
+    board_text: str,
+    game_inst,
+) -> None:
+    """Sends the game board with the appropriate keyboard for each game type."""
+    if game_slug == "tic_tac_toe":
+        kb = get_tic_tac_toe_keyboard(game_inst.board)
+        await message.answer(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    elif game_slug == "rock_paper_scissors":
+        kb = get_rps_keyboard()
+        await message.answer(
+            f"{header}{board_text}\n\n👇 *Select your move below:*",
+            reply_markup=kb,
+            parse_mode="Markdown",
+        )
+    elif game_slug == "connect_four":
+        kb = get_connect_four_keyboard(game_inst.board)
+        await message.answer(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+    else:
+        await message.answer(f"{header}{board_text}", parse_mode="Markdown")
 
 
 @router.message(Command("playbot", "vsbot", "ai"))
@@ -49,6 +118,13 @@ async def cmd_vsbot(message: Message, db_session: AsyncSession, db_user: UserMod
     )
 
     _, game_inst = await session_mgr.load_game_instance(session_rec.id)
+
+    # Human joins first (player index 0), AI joins second (player index 1)
+    human_player = GamePlayer(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+    )
+    game_inst.join(human_player)
     ai_player = get_ai_game_player()
     game_inst.join(ai_player)
     game_inst.start()
@@ -57,25 +133,29 @@ async def cmd_vsbot(message: Message, db_session: AsyncSession, db_user: UserMod
     await session_mgr.save_game_instance(session_rec, game_inst)
 
     info = GAME_DETAILS.get(game_slug, {})
-    board_text = game_inst.render(db_user.language_code)
-    header = (
-        f"🤖 *Match Started: {info.get('title', game_slug)} vs Computer!*\n"
+    title = info.get("title", game_slug.replace("_", " ").title())
+
+    # Send intro announcement
+    await message.reply(
+        f"🤖 *VS Computer Match: {title}!*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *Player:* {message.from_user.first_name}\n"
+        f"👤 *You:* {message.from_user.first_name}\n"
         f"🤖 *Opponent:* TeleGame Computer AI\n\n"
+        f"📖 Get ready! Instructions are coming up...",
+        parse_mode="Markdown",
     )
 
-    if game_slug == "tic_tac_toe":
-        kb = get_tic_tac_toe_keyboard(game_inst.board)
-        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
-    elif game_slug == "rock_paper_scissors":
-        kb = get_rps_keyboard()
-        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
-    elif game_slug == "connect_four":
-        kb = get_connect_four_keyboard(game_inst.board)
-        await message.reply(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
-    else:
-        await message.reply(f"{header}{board_text}", parse_mode="Markdown")
+    # Send instructions + countdown
+    await send_instructions_then_countdown(message, game_slug, info)
+
+    # Now send the game board
+    board_text = game_inst.render(db_user.language_code)
+    header = (
+        f"🎮 *{title} — Match Started!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 {message.from_user.first_name} (You) vs 🤖 Computer\n\n"
+    )
+    await send_game_board(message, game_slug, header, board_text, game_inst)
 
 
 @router.message(Command("games"))
@@ -95,7 +175,9 @@ async def cmd_games(message: Message) -> None:
         "9️⃣ ♟️ `chess` — Grand strategy chess\n"
         "🔟 🎲 `ludo` — Dice rolling board game\n\n"
         "📖 *How to start in this group:*\n"
-        "Type `/newgame <slug>` (e.g. `/newgame rock_paper_scissors`)"
+        "Type `/newgame <slug>` (e.g. `/newgame rock_paper_scissors`)\n\n"
+        "🤖 *Play vs Computer (private chat):*\n"
+        "Type `/playbot <slug>` (e.g. `/playbot tic_tac_toe`)"
     )
     kb = get_games_selection_keyboard()
     await message.reply(games_text, reply_markup=kb, parse_mode="Markdown")
@@ -107,7 +189,8 @@ async def cmd_newgame(message: Message, db_session: AsyncSession) -> None:
     if message.chat.type in ["private"]:
         await message.reply(
             "⚠️ *Games must be played in a Telegram Group!*\n\n"
-            "Add @TeleGameMasterBot to a group chat and type `/newgame` to play with friends.",
+            "Add @TeleGameMasterBot to a group chat and type `/newgame` to play with friends.\n\n"
+            "💡 Want to play alone vs Computer? Use `/playbot <game>` in private chat!",
             parse_mode="Markdown",
         )
         return
@@ -140,11 +223,12 @@ async def cmd_newgame(message: Message, db_session: AsyncSession) -> None:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"👤 *Host:* {message.from_user.first_name}\n"
             f"📌 *Status:* Waiting for players (`1/{info.get('max_players', 2)}`)...\n\n"
-            f"📜 *How to Play & Rules:*\n{rules}\n\n"
+            f"📜 *Rules & How to Play:*\n{rules}\n\n"
             f"📍 *Next Steps for Players:*\n"
             f"1️⃣ Group members type `/join` to enter the game.\n"
-            f"2️⃣ Game starts automatically when required players join!\n"
-            f"3️⃣ Type `/cancel` to abort the lobby.",
+            f"2️⃣ Host can type `/startgame` when ready OR game auto-starts when full!\n"
+            f"3️⃣ Type `/cancel` to abort the lobby.\n\n"
+            f"💡 *Full instructions will be shown when the match starts!*",
             parse_mode="Markdown",
         )
     except ActiveSessionConflictError:
@@ -191,32 +275,23 @@ async def cmd_join(message: Message, db_session: AsyncSession, db_user: UserMode
         session_rec.status = "PLAYING"
         await session_mgr.save_game_instance(session_rec, game_inst)
 
-        board_text = game_inst.render(db_user.language_code)
-        start_header = (
-            f"🚀 *All Players Joined ({player_count}/{game_inst.max_players})! Game Started!*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📜 *Rules:* {info.get('rules', '')}\n\n"
+        title = info.get("title", game_slug.replace("_", " ").title())
+        await message.reply(
+            f"✅ *{message.from_user.first_name} joined!*\n\n"
+            f"🚀 *All {player_count} players are in! Starting {title}...*\n"
+            f"📖 Get ready! Instructions are coming up...",
+            parse_mode="Markdown",
         )
 
-        if game_slug == "rock_paper_scissors":
-            board_kb = get_rps_keyboard()
-            await message.reply(
-                f"{start_header}{board_text}\n\n👇 *Select your move below:*",
-                reply_markup=board_kb,
-                parse_mode="Markdown",
-            )
-        elif game_slug == "tic_tac_toe":
-            board_kb = get_tic_tac_toe_keyboard(game_inst.board)
-            await message.reply(
-                f"{start_header}{board_text}", reply_markup=board_kb, parse_mode="Markdown"
-            )
-        elif game_slug == "connect_four":
-            board_kb = get_connect_four_keyboard(game_inst.board)
-            await message.reply(
-                f"{start_header}{board_text}", reply_markup=board_kb, parse_mode="Markdown"
-            )
-        else:
-            await message.reply(f"{start_header}{board_text}", parse_mode="Markdown")
+        # Send instructions + countdown
+        await send_instructions_then_countdown(message, game_slug, info)
+
+        board_text = game_inst.render(db_user.language_code)
+        start_header = (
+            f"🚀 *{title} — Match Started!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        )
+        await send_game_board(message, game_slug, start_header, board_text, game_inst)
     else:
         await message.reply(
             f"✅ *{message.from_user.first_name} joined the lobby!*\n\n"
@@ -262,32 +337,23 @@ async def cmd_startgame(message: Message, db_session: AsyncSession, db_user: Use
 
     game_slug = session_rec.game_slug
     info = GAME_DETAILS.get(game_slug, {})
-    board_text = game_inst.render(db_user.language_code)
-    start_header = (
-        f"🚀 *{info.get('title', game_slug.replace('_', ' ').title())} Started by Host!*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📜 *Rules:* {info.get('rules', '')}\n\n"
+    title = info.get("title", game_slug.replace("_", " ").title())
+
+    await message.reply(
+        f"🚀 *{title} — Host started the game!*\n\n"
+        f"📖 Get ready! Instructions and countdown are coming...",
+        parse_mode="Markdown",
     )
 
-    if game_slug == "rock_paper_scissors":
-        board_kb = get_rps_keyboard()
-        await message.reply(
-            f"{start_header}{board_text}\n\n👇 *Select your move below:*",
-            reply_markup=board_kb,
-            parse_mode="Markdown",
-        )
-    elif game_slug == "tic_tac_toe":
-        board_kb = get_tic_tac_toe_keyboard(game_inst.board)
-        await message.reply(
-            f"{start_header}{board_text}", reply_markup=board_kb, parse_mode="Markdown"
-        )
-    elif game_slug == "connect_four":
-        board_kb = get_connect_four_keyboard(game_inst.board)
-        await message.reply(
-            f"{start_header}{board_text}", reply_markup=board_kb, parse_mode="Markdown"
-        )
-    else:
-        await message.reply(f"{start_header}{board_text}", parse_mode="Markdown")
+    # Send instructions + countdown
+    await send_instructions_then_countdown(message, game_slug, info)
+
+    board_text = game_inst.render(db_user.language_code)
+    start_header = (
+        f"🎮 *{title} — Match Started!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    )
+    await send_game_board(message, game_slug, start_header, board_text, game_inst)
 
 
 @router.message(Command("cancel", "endgame", "forfeit"))

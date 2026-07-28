@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.engine.ai_opponent import get_ai_game_player
+from app.core.engine.base_game import GamePlayer
 from app.core.engine.plugin_manager import plugin_manager
 from app.core.engine.session_manager import SessionManager
 from app.i18n.engine import i18n
@@ -14,12 +15,9 @@ from app.services.economy_service import EconomyService
 from app.utils.game_info import GAME_DETAILS
 from app.utils.keyboards import (
     get_back_to_menu_keyboard,
-    get_connect_four_keyboard,
     get_game_details_keyboard,
     get_games_selection_keyboard,
     get_main_menu_keyboard,
-    get_rps_keyboard,
-    get_tic_tac_toe_keyboard,
 )
 
 router = Router(name="inline_menu_router")
@@ -90,6 +88,9 @@ async def cb_select_game(query: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("play_ai_"))
 async def cb_play_ai(query: CallbackQuery, db_user: UserModel, db_session: AsyncSession) -> None:
     """Launches an instant single-player game session against Computer AI."""
+    # Import here to avoid circular import
+    from app.handlers.game_lobby import send_game_board, send_instructions_then_countdown
+
     slug = query.data.replace("play_ai_", "")
     games = plugin_manager.list_available_games()
 
@@ -121,6 +122,13 @@ async def cb_play_ai(query: CallbackQuery, db_user: UserModel, db_session: Async
     )
 
     _, game_inst = await session_mgr.load_game_instance(session_rec.id)
+
+    # Human player joins first (index 0), AI joins second (index 1)
+    human_player = GamePlayer(
+        telegram_id=query.from_user.id,
+        username=query.from_user.username,
+    )
+    game_inst.join(human_player)
     ai_player = get_ai_game_player()
     game_inst.join(ai_player)
     game_inst.start()
@@ -129,26 +137,29 @@ async def cb_play_ai(query: CallbackQuery, db_user: UserModel, db_session: Async
     await session_mgr.save_game_instance(session_rec, game_inst)
 
     info = GAME_DETAILS.get(slug, {})
-    board_text = game_inst.render(db_user.language_code)
+    title = info.get("title", slug.replace("_", " ").title())
     header = (
-        f"🤖 *Match Started: {info.get('title', slug)} vs Computer!*\n"
+        f"🤖 *VS Computer: {title}!*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *Player:* {query.from_user.first_name}\n"
+        f"👤 *You:* {query.from_user.first_name}\n"
         f"🤖 *Opponent:* TeleGame Computer AI\n\n"
+        f"📖 Get ready! Instructions coming up..."
     )
 
-    if slug == "tic_tac_toe":
-        kb = get_tic_tac_toe_keyboard(game_inst.board)
-    elif slug == "rock_paper_scissors":
-        kb = get_rps_keyboard()
-    elif slug == "connect_four":
-        kb = get_connect_four_keyboard(game_inst.board)
-    else:
-        kb = get_back_to_menu_keyboard(db_user.language_code)
-
     if query.message:
-        await query.message.edit_text(f"{header}{board_text}", reply_markup=kb, parse_mode="Markdown")
+        await query.message.edit_text(header, parse_mode="Markdown")
     await query.answer("Started match against Computer!")
+
+    # Send instructions + countdown then show board
+    if query.message:
+        await send_instructions_then_countdown(query.message, slug, info)
+        board_text = game_inst.render(db_user.language_code)
+        board_header = (
+            f"🎮 *{title} — Match Started!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 {query.from_user.first_name} (You) vs 🤖 Computer\n\n"
+        )
+        await send_game_board(query.message, slug, board_header, board_text, game_inst)
 
 
 @router.callback_query(F.data == "menu_profile")
